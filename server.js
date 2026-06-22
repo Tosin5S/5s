@@ -236,7 +236,55 @@ app.post('/api/agent/chat', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 5. SELF-MODIFICATION ENDPOINTS
+// 5. GOALS — Persistent multi-session goal tracking
+// ─────────────────────────────────────────────────────────────────────────────
+const GOALS_FILE = path.join(WORKSPACE_DIR, 'goals.json');
+
+app.get('/api/goals', async (req, res) => {
+  try {
+    if (!fs.existsSync(GOALS_FILE)) return res.json({ success: true, goals: [] });
+    const data = await fs.promises.readFile(GOALS_FILE, 'utf-8');
+    res.json({ success: true, goals: JSON.parse(data) });
+  } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+app.post('/api/goals', async (req, res) => {
+  try {
+    const { goals } = req.body;
+    await fs.promises.writeFile(GOALS_FILE, JSON.stringify(goals, null, 2), 'utf-8');
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 6. CORRECTIONS — 5s learns from user feedback
+// ─────────────────────────────────────────────────────────────────────────────
+const CORRECTIONS_FILE = path.join(WORKSPACE_DIR, 'corrections.json');
+
+app.get('/api/corrections', async (req, res) => {
+  try {
+    if (!fs.existsSync(CORRECTIONS_FILE)) return res.json({ success: true, corrections: [] });
+    const data = await fs.promises.readFile(CORRECTIONS_FILE, 'utf-8');
+    res.json({ success: true, corrections: JSON.parse(data) });
+  } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+app.post('/api/corrections', async (req, res) => {
+  try {
+    const { correction } = req.body;
+    let list = [];
+    if (fs.existsSync(CORRECTIONS_FILE)) {
+      const data = await fs.promises.readFile(CORRECTIONS_FILE, 'utf-8');
+      list = JSON.parse(data);
+    }
+    list.push({ ...correction, id: Date.now(), timestamp: new Date().toISOString() });
+    await fs.promises.writeFile(CORRECTIONS_FILE, JSON.stringify(list, null, 2), 'utf-8');
+    res.json({ success: true, total: list.length });
+  } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 7. SELF-MODIFICATION ENDPOINTS
 // 5s can read and rewrite its own source files (with safety backups)
 // ─────────────────────────────────────────────────────────────────────────────
 
