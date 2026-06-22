@@ -1,160 +1,632 @@
-import React, { useState, useEffect } from 'react';
-import { runAgentLoop } from './agentService';
-import ThoughtTree from './ThoughtTree';
+import React, { useState, useEffect, useRef } from 'react';
 import MemoryMap from './MemoryMap';
 import WorkspacePanel from './WorkspacePanel';
 
-function AgentPage({ apiKey, onSandboxRun }) {
-  const [prompt, setPrompt] = useState('Create a hello_world.js file, run it in the sandbox, and save the result to memory');
-  const [steps, setSteps] = useState([]);
-  const [memories, setMemories] = useState([]);
-  const [isExecuting, setIsExecuting] = useState(false);
-  const [finalResponse, setFinalResponse] = useState('');
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
+// ─── Icons ────────────────────────────────────────────────────────────────────
+const SendIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+    fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
+  </svg>
+);
+const BrainIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+    fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/>
+    <path d="M12 6v6l4 2"/>
+  </svg>
+);
+const UserIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+    fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+  </svg>
+);
+const TrashIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+    fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+  </svg>
+);
 
-  // Load memories from backend
+// ─── Typing Indicator ─────────────────────────────────────────────────────────
+function TypingIndicator({ stage }) {
+  const stageColors = {
+    'SORT': '#64748b', 'SET IN ORDER': 'var(--color-secondary)',
+    'SHINE': 'var(--color-primary)', 'STANDARDIZE': 'var(--color-success)',
+    'SUSTAIN': 'var(--color-warning)', default: 'var(--color-primary)'
+  };
+  const color = stageColors[stage] || stageColors.default;
+
+  return (
+    <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end' }}>
+      {/* Avatar */}
+      <div style={{
+        width: '32px', height: '32px', borderRadius: '50%', flexShrink: 0,
+        background: 'linear-gradient(135deg, var(--color-primary), var(--color-secondary))',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        color: '#080c14', fontWeight: '800', fontSize: '0.75rem'
+      }}>5s</div>
+
+      <div style={{
+        background: 'var(--card-bg)', border: '1px solid var(--card-border)',
+        borderRadius: '18px 18px 18px 4px', padding: '12px 16px',
+        display: 'flex', flexDirection: 'column', gap: '6px',
+        backdropFilter: 'blur(12px)', maxWidth: '420px'
+      }}>
+        {stage && (
+          <span style={{
+            fontSize: '0.65rem', fontWeight: '700', letterSpacing: '1.5px',
+            color, borderBottom: `1px solid ${color}22`, paddingBottom: '4px'
+          }}>
+            ▸ {stage}
+          </span>
+        )}
+        <div style={{ display: 'flex', gap: '5px', alignItems: 'center', padding: '2px 0' }}>
+          {[0, 1, 2].map(i => (
+            <span key={i} style={{
+              width: '7px', height: '7px', borderRadius: '50%',
+              backgroundColor: 'var(--color-primary)',
+              animation: `pulse 1.2s ease-in-out ${i * 0.2}s infinite`
+            }} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Chat Bubble ──────────────────────────────────────────────────────────────
+function ChatBubble({ message }) {
+  const isUser = message.role === 'user';
+
+  return (
+    <div style={{
+      display: 'flex', gap: '12px',
+      flexDirection: isUser ? 'row-reverse' : 'row',
+      alignItems: 'flex-end',
+      animation: 'slideUp 0.25s ease-out'
+    }}>
+      {/* Avatar */}
+      <div style={{
+        width: '32px', height: '32px', borderRadius: '50%', flexShrink: 0,
+        background: isUser
+          ? 'rgba(255,255,255,0.08)'
+          : 'linear-gradient(135deg, var(--color-primary), var(--color-secondary))',
+        border: isUser ? '1px solid rgba(255,255,255,0.1)' : 'none',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        color: isUser ? 'var(--text-muted)' : '#080c14',
+        fontWeight: '800', fontSize: '0.75rem'
+      }}>
+        {isUser ? <UserIcon /> : '5s'}
+      </div>
+
+      <div style={{ maxWidth: '72%', display: 'flex', flexDirection: 'column', gap: '4px',
+        alignItems: isUser ? 'flex-end' : 'flex-start' }}>
+
+        {/* Tool activity badges (only for assistant) */}
+        {!isUser && message.tools && message.tools.length > 0 && (
+          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '4px' }}>
+            {message.tools.map((t, i) => (
+              <span key={i} style={{
+                fontSize: '0.65rem', padding: '2px 7px', borderRadius: '10px',
+                background: 'rgba(0,242,254,0.08)', border: '1px solid rgba(0,242,254,0.15)',
+                color: 'var(--color-primary)', fontFamily: 'var(--font-code)'
+              }}>
+                🛠 {t}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Bubble */}
+        <div style={{
+          background: isUser
+            ? 'linear-gradient(135deg, rgba(0,242,254,0.12), rgba(161,85,255,0.12))'
+            : 'var(--card-bg)',
+          border: isUser
+            ? '1px solid rgba(0,242,254,0.2)'
+            : '1px solid var(--card-border)',
+          borderRadius: isUser ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
+          padding: '12px 16px',
+          backdropFilter: 'blur(12px)',
+          fontSize: '0.92rem',
+          lineHeight: '1.6',
+          color: 'var(--text-main)',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word'
+        }}>
+          {message.content}
+        </div>
+
+        <span style={{ fontSize: '0.7rem', color: 'var(--text-dark)' }}>
+          {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ─── Suggestion Pills ─────────────────────────────────────────────────────────
+const SUGGESTIONS = [
+  'Create a fibonacci.js file and run it',
+  'What files are in the workspace?',
+  'Write a Python script that sorts a list',
+  'Save a note about the 5S methodology',
+  'Run a math calculation in the sandbox',
+];
+
+// ─── Chat Service ─────────────────────────────────────────────────────────────
+async function chat5S({ userMessage, conversationHistory, apiKey, onStageChange, onSandboxRun }) {
+  // Build workspace context
+  let workspaceFiles = [];
+  let relevantMemories = [];
+
+  try {
+    const [filesRes, memRes] = await Promise.all([fetch('/api/files'), fetch('/api/memory')]);
+    const [filesData, memData] = await Promise.all([filesRes.json(), memRes.json()]);
+    if (filesData.success) workspaceFiles = filesData.files.map(f => f.path);
+    if (memData.success && memData.memories) {
+      const words = userMessage.toLowerCase().split(/\s+/);
+      relevantMemories = memData.memories
+        .filter(m => words.some(w => w.length > 3 && m.content.toLowerCase().includes(w)))
+        .slice(0, 3);
+    }
+  } catch (_) {}
+
+  onStageChange('SORT');
+  await delay(400);
+
+  // Decide if message needs tool use or is conversational
+  const needsTools = /create|write|run|execute|file|code|sandbox|save|memory|build|generate|make/i.test(userMessage);
+
+  onStageChange('SET IN ORDER');
+  await delay(500);
+
+  let responseText = '';
+  let toolsUsed = [];
+
+  if (!needsTools) {
+    // Pure conversational reply
+    onStageChange('SHINE');
+    if (apiKey) {
+      try {
+        const sysPrompt = `You are 5s, a General Intelligence AI assistant. You are smart, concise, and helpful.
+You have access to a local workspace with files: [${workspaceFiles.join(', ')}]
+Relevant memories: ${JSON.stringify(relevantMemories)}
+Be conversational, sharp and direct. Use markdown sparingly. Keep responses focused.`;
+
+        const messages = [
+          ...conversationHistory.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
+          { role: 'user', parts: [{ text: userMessage }] }
+        ];
+
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: messages,
+            systemInstruction: { parts: [{ text: sysPrompt }] },
+            generationConfig: { temperature: 0.7, maxOutputTokens: 1024 }
+          })
+        });
+        const data = await res.json();
+        responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || 'I processed your message.';
+      } catch (e) {
+        responseText = simulateConversationalReply(userMessage, workspaceFiles, relevantMemories);
+      }
+    } else {
+      responseText = simulateConversationalReply(userMessage, workspaceFiles, relevantMemories);
+    }
+  } else {
+    // Tool-using reply: run a focused action loop
+    onStageChange('SHINE');
+    const action = await decideAction(userMessage);
+
+    if (action.tool === 'write_file') {
+      toolsUsed.push('write_file');
+      try {
+        await fetch('/api/file', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(action.params)
+        });
+        responseText = `✅ I've created **${action.params.filePath}** in your workspace.\n\n`;
+
+        if (/run|execute/i.test(userMessage)) {
+          onStageChange('SHINE');
+          toolsUsed.push('run_code');
+          if (onSandboxRun) onSandboxRun();
+          const runRes = await fetch('/api/sandbox/run', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code: action.params.content, language: action.params.language || 'javascript' })
+          });
+          const runData = await runRes.json();
+          if (runData.success) {
+            responseText += `**Execution output:**\n\`\`\`\n${runData.stdout || '(no output)'}\n\`\`\``;
+          } else {
+            responseText += `**Execution error:**\n\`\`\`\n${runData.error || runData.stderr}\n\`\`\``;
+          }
+        }
+      } catch (e) {
+        responseText = `Sorry, I couldn't write the file: ${e.message}`;
+      }
+    } else if (action.tool === 'run_code') {
+      toolsUsed.push('run_code');
+      if (onSandboxRun) onSandboxRun();
+      try {
+        const runRes = await fetch('/api/sandbox/run', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(action.params)
+        });
+        const runData = await runRes.json();
+        responseText = runData.success
+          ? `✅ Code executed successfully:\n\`\`\`\n${runData.stdout || '(no output)'}\n\`\`\``
+          : `⚠️ Execution failed:\n\`\`\`\n${runData.error || runData.stderr}\n\`\`\``;
+      } catch (e) {
+        responseText = `Sandbox error: ${e.message}`;
+      }
+    } else if (action.tool === 'list_files') {
+      toolsUsed.push('read_workspace');
+      responseText = workspaceFiles.length > 0
+        ? `📁 **Workspace files** (${workspaceFiles.length}):\n${workspaceFiles.map(f => `• \`${f}\``).join('\n')}`
+        : "The workspace is empty — no files yet. Ask me to create something!";
+    } else if (action.tool === 'save_memory') {
+      toolsUsed.push('save_memory');
+      try {
+        const memRes = await fetch('/api/memory');
+        const memData = await memRes.json();
+        const list = memData.success ? memData.memories : [];
+        list.push({ id: Date.now(), content: action.params.content, tags: action.params.tags || [], timestamp: new Date().toISOString() });
+        await fetch('/api/memory', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ memories: list })
+        });
+        responseText = `🧠 Saved to long-term memory:\n"${action.params.content}"`;
+      } catch (e) {
+        responseText = `Memory save failed: ${e.message}`;
+      }
+    } else {
+      responseText = simulateConversationalReply(userMessage, workspaceFiles, relevantMemories);
+    }
+  }
+
+  onStageChange('STANDARDIZE');
+  await delay(300);
+
+  // Auto-save a lightweight memory of this exchange
+  try {
+    const memRes = await fetch('/api/memory');
+    const memData = await memRes.json();
+    const list = memData.success ? memData.memories : [];
+    if (list.length < 50) {
+      list.push({
+        id: Date.now() + Math.random(),
+        content: `Chat: User asked "${userMessage.slice(0, 60)}". 5s responded about: ${responseText.slice(0, 80)}`,
+        tags: ['chat', 'conversation'],
+        timestamp: new Date().toISOString()
+      });
+      await fetch('/api/memory', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ memories: list })
+      });
+    }
+  } catch (_) {}
+
+  onStageChange('SUSTAIN');
+  await delay(200);
+
+  return { text: responseText, tools: toolsUsed };
+}
+
+async function decideAction(message) {
+  const lower = message.toLowerCase();
+
+  // List files
+  if (/what files|list files|show files|workspace files/i.test(message)) {
+    return { tool: 'list_files', params: {} };
+  }
+
+  // Save memory / note
+  if (/save|remember|note|memory/i.test(message)) {
+    const content = message.replace(/save|remember|note|memory|a|about|the|to/gi, '').trim() || message;
+    return { tool: 'save_memory', params: { content, tags: ['chat', 'user-note'] } };
+  }
+
+  // Fibonacci
+  if (/fibonacci/i.test(message)) {
+    return {
+      tool: 'write_file', params: {
+        filePath: 'fibonacci.js', language: 'javascript',
+        content: `// Fibonacci sequence generator\nfunction fib(n) {\n  if (n <= 1) return n;\n  return fib(n - 1) + fib(n - 2);\n}\nconst results = [];\nfor (let i = 0; i <= 15; i++) results.push(fib(i));\nconsole.log("Fibonacci sequence (0-15):", results.join(", "));`
+      }
+    };
+  }
+
+  // Prime numbers
+  if (/prime/i.test(message)) {
+    return {
+      tool: 'write_file', params: {
+        filePath: 'primes.js', language: 'javascript',
+        content: `function isPrime(n) { if (n < 2) return false; for (let i = 2; i <= Math.sqrt(n); i++) if (n % i === 0) return false; return true; }\nconst primes = Array.from({length: 50}, (_, i) => i + 2).filter(isPrime);\nconsole.log("Primes up to 50:", primes.join(", "));`
+      }
+    };
+  }
+
+  // Python sort
+  if (/python.*sort|sort.*python/i.test(message)) {
+    return {
+      tool: 'write_file', params: {
+        filePath: 'sort_demo.py', language: 'python',
+        content: `items = [64, 34, 25, 12, 22, 11, 90]\nprint("Original:", items)\nitems.sort()\nprint("Sorted:  ", items)\n\n# Also bubble sort for demo\ndef bubble_sort(arr):\n    n = len(arr)\n    for i in range(n):\n        for j in range(0, n-i-1):\n            if arr[j] > arr[j+1]:\n                arr[j], arr[j+1] = arr[j+1], arr[j]\n    return arr\n\ndata = [64, 34, 25, 12, 22, 11, 90]\nprint("Bubble sorted:", bubble_sort(data))`
+      }
+    };
+  }
+
+  // Math calculation
+  if (/calculat|math|comput/i.test(message)) {
+    const code = `// Math computation\nconsole.log("π =", Math.PI);\nconsole.log("e =", Math.E);\nconsole.log("sqrt(2) =", Math.sqrt(2));\nconsole.log("2^10 =", Math.pow(2, 10));\nconsole.log("sin(π/2) =", Math.sin(Math.PI / 2));`;
+    return { tool: 'run_code', params: { code, language: 'javascript' } };
+  }
+
+  // Generic "create/write file" — derive filename from message
+  if (/create|write|make|generate|build/i.test(message)) {
+    const fileMatch = message.match(/(\w[\w.-]*\.\w+)/);
+    const fname = fileMatch ? fileMatch[1] : 'output.js';
+    const isJs = fname.endsWith('.js') || fname.endsWith('.ts') || !fname.includes('.');
+    const content = isJs
+      ? `// Generated by 5s AGI\nconsole.log("Hello from ${fname}!");\nconsole.log("Created at:", new Date().toISOString());`
+      : `# Generated by 5s AGI\nHello from ${fname}!\nCreated: ${new Date().toISOString()}`;
+    return { tool: 'write_file', params: { filePath: fname, language: isJs ? 'javascript' : 'text', content } };
+  }
+
+  return { tool: 'converse', params: {} };
+}
+
+function simulateConversationalReply(message, files, memories) {
+  const lower = message.toLowerCase();
+  if (/hello|hi |hey/i.test(message)) {
+    return `Hello! I'm 5S, your General Intelligence AI. I can chat with you, create files, run code in a sandbox, manage your workspace, and remember things for you.\n\nI currently see **${files.length} files** in your workspace. What would you like to do?`;
+  }
+  if (/what.*can you|your capabilities|what do you do/i.test(message)) {
+    return `Here's what I can do:\n\n**🗂 File Management** — Create, read, and delete files in your workspace\n**⚡ Code Execution** — Run JavaScript or Python code in a sandboxed environment\n**🧠 Long-Term Memory** — Save and recall notes, facts, and context across conversations\n**💬 Conversation** — Chat, answer questions, explain concepts\n**🔧 Tool Calling** — Combine the above to complete multi-step tasks\n\nWorkspace: **${files.length} files**. API Mode: Simulated (add a Gemini key in settings for live LLM).`;
+  }
+  if (/5s|methodology|lean/i.test(message)) {
+    return `The 5S cognitive methodology I use mirrors Japanese lean manufacturing:\n\n1. **Sort (Seiri)** — Filter context and memory to relevant information\n2. **Set in Order (Seiton)** — Plan the steps before acting\n3. **Shine (Seiso)** — Execute tools and actions\n4. **Standardize (Seiketsu)** — Verify and format output\n5. **Sustain (Shitsuke)** — Save knowledge and maintain state\n\nThis keeps my reasoning clean, traceable, and efficient.`;
+  }
+  if (/memory|remember|recall/i.test(message)) {
+    return memories.length > 0
+      ? `I have **${memories.length} memories** related to your query. The most recent: "${memories[0]?.content?.slice(0, 100)}..."`
+      : "I don't have any relevant memories for that yet. Tell me something to remember and I'll save it!";
+  }
+  if (/neural|network|train/i.test(message)) {
+    return "The **Toy Neural Network** is in the 'Toy Neural Net (Scratch)' tab. You can train it on XOR logic gates or draw custom patterns for classification. Everything runs in the browser using pure JavaScript — no external libraries!";
+  }
+  return `I understand you're asking about: *"${message}"*\n\nIn simulated mode I have pre-built responses for common actions. For full conversational AI, add your Gemini API key in the sidebar settings. I can still create files, run code, and manage memory right now though — just ask!`;
+}
+
+const delay = (ms) => new Promise(r => setTimeout(r, ms));
+
+// ─── Main AgentPage ───────────────────────────────────────────────────────────
+function AgentPage({ apiKey, onSandboxRun }) {
+  const [messages, setMessages] = useState([
+    {
+      id: 1,
+      role: 'assistant',
+      content: "Hello! I'm **5S**, your General Intelligence AI. I'm running in this workspace with access to your file system, a code sandbox, and long-term memory.\n\nYou can chat with me naturally — ask me to create files, run code, save notes, or just have a conversation. What's on your mind?",
+      timestamp: new Date().toISOString(),
+      tools: []
+    }
+  ]);
+  const [input, setInput] = useState('');
+  const [isThinking, setIsThinking] = useState(false);
+  const [currentStage, setCurrentStage] = useState('');
+  const [memories, setMemories] = useState([]);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [showSidePanel, setShowSidePanel] = useState(true);
+  const chatEndRef = useRef(null);
+  const inputRef = useRef(null);
+
+  const scrollToBottom = () => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+
+  useEffect(() => { scrollToBottom(); }, [messages, isThinking]);
+
   const loadMemories = async () => {
     try {
       const res = await fetch('/api/memory');
       const data = await res.json();
-      if (data.success && data.memories) {
-        setMemories(data.memories);
-      }
+      if (data.success) setMemories(data.memories);
+    } catch (_) {}
+  };
+
+  useEffect(() => { loadMemories(); }, []);
+
+  const handleSend = async () => {
+    const text = input.trim();
+    if (!text || isThinking) return;
+
+    const userMsg = { id: Date.now(), role: 'user', content: text, timestamp: new Date().toISOString(), tools: [] };
+    const history = [...messages];
+
+    setMessages(prev => [...prev, userMsg]);
+    setInput('');
+    setIsThinking(true);
+    setCurrentStage('SORT');
+
+    try {
+      const result = await chat5S({
+        userMessage: text,
+        conversationHistory: history.filter(m => m.role !== 'system').slice(-8),
+        apiKey,
+        onStageChange: (stage) => setCurrentStage(stage),
+        onSandboxRun: () => {
+          if (onSandboxRun) onSandboxRun();
+          setRefreshTrigger(p => p + 1);
+        }
+      });
+
+      const assistantMsg = {
+        id: Date.now() + 1,
+        role: 'assistant',
+        content: result.text,
+        timestamp: new Date().toISOString(),
+        tools: result.tools
+      };
+
+      setMessages(prev => [...prev, assistantMsg]);
+      loadMemories();
+      setRefreshTrigger(p => p + 1);
     } catch (e) {
-      console.error('Failed to load memories', e);
+      setMessages(prev => [...prev, {
+        id: Date.now() + 1, role: 'assistant', tools: [],
+        content: `Something went wrong: ${e.message}`,
+        timestamp: new Date().toISOString()
+      }]);
+    } finally {
+      setIsThinking(false);
+      setCurrentStage('');
+      setTimeout(() => inputRef.current?.focus(), 50);
     }
   };
 
-  useEffect(() => {
-    loadMemories();
-  }, []);
-
-  const handleSubmit = async (e) => {
-    if (e) e.preventDefault();
-    if (!prompt.trim() || isExecuting) return;
-
-    setIsExecuting(true);
-    setFinalResponse('');
-    setSteps([]);
-
-    const result = await runAgentLoop({
-      prompt,
-      apiKey,
-      onStepUpdate: (updatedSteps) => {
-        setSteps(updatedSteps);
-      },
-      onSandboxRun
-    });
-
-    setIsExecuting(false);
-    if (result.success) {
-      setFinalResponse(result.response);
-    } else {
-      setFinalResponse(`### Error Executing Loop\n\n${result.response}`);
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
     }
+  };
 
-    // Refresh memory nodes and files list on completion
-    loadMemories();
-    setRefreshTrigger(prev => prev + 1);
+  const clearChat = () => {
+    setMessages([{
+      id: Date.now(), role: 'assistant', tools: [],
+      content: "Chat cleared. Fresh start — what would you like to work on?",
+      timestamp: new Date().toISOString()
+    }]);
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', flex: 1 }}>
-      {/* Header */}
-      <div>
-        <h2 style={{ fontSize: '1.5rem', fontWeight: '800' }}>5S Cognitive Agent</h2>
-        <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-          An autonomous reasoning agent operating under the Sort, Set in Order, Shine, Standardize, Sustain workspace methodology.
-        </p>
-      </div>
+    <div style={{ display: 'flex', gap: '20px', flex: 1, minHeight: 0, height: 'calc(100vh - 48px)' }}>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 0.9fr', gap: '24px', alignItems: 'start' }}>
-        {/* Left Column: Chat input & Thought Stream */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          
-          {/* Query input card */}
-          <div className="glass-card glow-teal" style={{ padding: '20px' }}>
-            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '0.9rem', fontWeight: '600' }}>Instruct 5s Agent</label>
-                <textarea
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  placeholder="Ask the agent to build, examine, execute or remember..."
-                  rows="3"
-                  className="input-text"
-                  style={{ resize: 'vertical', fontSize: '0.9rem', lineHeight: 1.4 }}
-                  disabled={isExecuting}
-                />
-              </div>
+      {/* ─── Main Chat Panel ───────────────────────────────────────────────── */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                  {!apiKey && (
-                    <span style={{ color: 'var(--color-warning)' }}>
-                      ⚠️ Running in <b>Simulated Reasoning Mode</b> (Mock LLM, actual file/sandbox calls). Enter a key in the sidebar for Live Mode.
-                    </span>
-                  )}
-                </div>
-
-                <button
-                  type="submit"
-                  className="btn btn-primary"
-                  disabled={isExecuting || !prompt.trim()}
-                  style={{ alignSelf: 'flex-end', padding: '10px 24px' }}
-                >
-                  {isExecuting ? (
-                    <>
-                      <span className="pulse">🤖 Executing Cycle...</span>
-                    </>
-                  ) : (
-                    'Run 5S Agent'
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-
-          {/* Thought stream logs */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <span style={{ fontSize: '0.9rem', fontWeight: '600', color: 'var(--text-main)', paddingLeft: '4px' }}>
-              Cognitive Thought Stream
-            </span>
-            <ThoughtTree steps={steps} />
-          </div>
-
-          {/* Final response card */}
-          {finalResponse && (
-            <div className="glass-card" style={{
-              padding: '24px',
-              border: '1px solid rgba(0, 255, 157, 0.25)',
-              background: 'rgba(5, 15, 10, 0.45)',
-              animation: 'fadeIn 0.3s ease-out'
-            }}>
-              <h3 style={{ fontSize: '1.05rem', color: 'var(--color-success)', marginBottom: '12px', borderBottom: '1px solid rgba(0, 255, 157, 0.1)', paddingBottom: '6px' }}>
-                Terminal Output Response
-              </h3>
-              <div style={{
-                fontSize: '0.9rem',
-                lineHeight: 1.6,
-                color: '#fff',
-                whiteSpace: 'pre-wrap'
-              }}>
-                {finalResponse}
+        {/* Chat Header */}
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          marginBottom: '16px', paddingBottom: '16px',
+          borderBottom: '1px solid var(--card-border)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{
+              width: '40px', height: '40px', borderRadius: '50%',
+              background: 'linear-gradient(135deg, var(--color-primary), var(--color-secondary))',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: '#080c14', fontWeight: '800', fontSize: '1rem',
+              boxShadow: 'var(--shadow-glow)'
+            }}>5s</div>
+            <div>
+              <div style={{ fontWeight: '700', fontSize: '1.05rem' }}>5S General Intelligence</div>
+              <div style={{ fontSize: '0.75rem', color: apiKey ? 'var(--color-success)' : 'var(--color-warning)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: 'currentColor', display: 'inline-block' }} />
+                {apiKey ? 'Live AI Mode (Gemini)' : 'Simulated Mode — add API key for live AI'}
               </div>
             </div>
-          )}
+          </div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button onClick={clearChat} className="btn" style={{ padding: '6px 12px', fontSize: '0.8rem', gap: '6px' }}>
+              <TrashIcon /> Clear Chat
+            </button>
+            <button
+              onClick={() => setShowSidePanel(p => !p)}
+              className="btn"
+              style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+            >
+              {showSidePanel ? '⊟ Hide Panel' : '⊞ Show Panel'}
+            </button>
+          </div>
         </div>
 
-        {/* Right Column: Memory Map & Workspace Explorer */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          {/* Memory Web */}
-          <MemoryMap memories={memories} onRefresh={loadMemories} />
-          
-          {/* Workspace view */}
-          <WorkspacePanel onSandboxRun={onSandboxRun} refreshTrigger={refreshTrigger} />
+        {/* Messages */}
+        <div style={{
+          flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column',
+          gap: '20px', paddingRight: '4px', paddingBottom: '8px'
+        }}>
+          {messages.map(msg => <ChatBubble key={msg.id} message={msg} />)}
+          {isThinking && <TypingIndicator stage={currentStage} />}
+          <div ref={chatEndRef} />
+        </div>
+
+        {/* Suggestion Pills (only when no user messages yet) */}
+        {messages.length <= 1 && (
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px', marginTop: '8px' }}>
+            {SUGGESTIONS.map((s, i) => (
+              <button key={i} onClick={() => { setInput(s); inputRef.current?.focus(); }}
+                style={{
+                  background: 'rgba(255,255,255,0.03)', border: '1px solid var(--card-border)',
+                  color: 'var(--text-muted)', borderRadius: '20px', padding: '6px 14px',
+                  fontSize: '0.8rem', cursor: 'pointer', transition: 'var(--transition-smooth)'
+                }}
+                onMouseEnter={e => { e.target.style.borderColor = 'var(--color-primary)'; e.target.style.color = 'var(--color-primary)'; }}
+                onMouseLeave={e => { e.target.style.borderColor = 'var(--card-border)'; e.target.style.color = 'var(--text-muted)'; }}
+              >{s}</button>
+            ))}
+          </div>
+        )}
+
+        {/* Input Bar */}
+        <div className="glass-card" style={{
+          padding: '12px 16px', display: 'flex', gap: '12px', alignItems: 'flex-end',
+          border: '1px solid rgba(0,242,254,0.15)',
+          background: 'rgba(8,12,20,0.8)',
+          marginTop: '8px'
+        }}>
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Chat with 5S… (Shift+Enter for new line)"
+            rows={1}
+            disabled={isThinking}
+            style={{
+              flex: 1, background: 'transparent', border: 'none', outline: 'none',
+              color: 'var(--text-main)', fontFamily: 'var(--font-main)', fontSize: '0.95rem',
+              resize: 'none', lineHeight: 1.5, maxHeight: '120px', overflow: 'auto'
+            }}
+            onInput={e => {
+              e.target.style.height = 'auto';
+              e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+            }}
+          />
+          <button
+            onClick={handleSend}
+            disabled={!input.trim() || isThinking}
+            style={{
+              width: '40px', height: '40px', borderRadius: '10px', border: 'none', flexShrink: 0,
+              background: input.trim() && !isThinking
+                ? 'linear-gradient(135deg, var(--color-primary), var(--color-secondary))'
+                : 'var(--bg-tertiary)',
+              color: input.trim() && !isThinking ? '#080c14' : 'var(--text-dark)',
+              cursor: input.trim() && !isThinking ? 'pointer' : 'not-allowed',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              transition: 'var(--transition-smooth)',
+              boxShadow: input.trim() && !isThinking ? 'var(--shadow-glow)' : 'none'
+            }}
+          >
+            <SendIcon />
+          </button>
         </div>
       </div>
+
+      {/* ─── Side Panel ────────────────────────────────────────────────────── */}
+      {showSidePanel && (
+        <div style={{
+          width: '380px', flexShrink: 0, display: 'flex', flexDirection: 'column',
+          gap: '16px', overflowY: 'auto'
+        }}>
+          <MemoryMap memories={memories} onRefresh={loadMemories} />
+          <WorkspacePanel onSandboxRun={onSandboxRun} refreshTrigger={refreshTrigger} />
+        </div>
+      )}
     </div>
   );
 }
