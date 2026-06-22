@@ -1,0 +1,29 @@
+[
+  {
+    "id": 1000000000001,
+    "content": "The 5S Cognitive methodology consists of Sort (Seiri), Set in Order (Seiton), Shine (Seiso), Standardize (Seiketsu), and Sustain (Shitsuke) applied directly to LLM agent reasoning structures.",
+    "tags": [
+      "workspace",
+      "5s-methodology"
+    ],
+    "timestamp": "2026-06-22T00:00:00.000Z"
+  },
+  {
+    "id": 1000000000002,
+    "content": "Toy Neural Networks use backpropagation and gradient descent to modify node weights and biases. Convergence on non-linear gates like XOR requires at least one hidden layer.",
+    "tags": [
+      "math",
+      "neural-networks"
+    ],
+    "timestamp": "2026-06-22T00:01:00.000Z"
+  },
+  {
+    "id": 1000000000003,
+    "content": "Sub-process sandboxing is executed on the Node.js backend using express endpoints linked to child_process exec loops. It supports JavaScript and Python code blocks.",
+    "tags": [
+      "sandbox",
+      "runtimes"
+    ],
+    "timestamp": "2026-06-22T00:02:00.000Z"
+  }
+]
