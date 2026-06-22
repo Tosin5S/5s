@@ -235,6 +235,143 @@ app.post('/api/agent/chat', async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. SELF-MODIFICATION ENDPOINTS
+// 5s can read and rewrite its own source files (with safety backups)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SRC_DIR = path.join(WORKSPACE_DIR, 'src');
+const EVOLUTION_FILE = path.join(WORKSPACE_DIR, 'self_evolution.json');
+const BACKUPS_DIR = path.join(WORKSPACE_DIR, '.self_backups');
+
+// Safety: only allow modifying files inside src/ directory
+function safeSrcPath(relativePath) {
+  const abs = path.resolve(WORKSPACE_DIR, relativePath);
+  if (!abs.startsWith(SRC_DIR)) {
+    throw new Error(`Self-modification blocked: "${relativePath}" is outside src/`);
+  }
+  return abs;
+}
+
+// Read a source file (returns content + line count)
+app.get('/api/self/source', async (req, res) => {
+  try {
+    const { file } = req.query;
+    if (!file) return res.status(400).json({ success: false, error: 'file param required' });
+    const abs = safeSrcPath(file);
+    const content = await fs.promises.readFile(abs, 'utf-8');
+    res.json({ success: true, content, lines: content.split('\n').length, file });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// List all modifiable source files
+app.get('/api/self/sources', async (req, res) => {
+  try {
+    const listSrc = async (dir, out = []) => {
+      const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+      for (const e of entries) {
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) await listSrc(full, out);
+        else if (/\.(js|jsx|css)$/.test(e.name)) {
+          const stat = await fs.promises.stat(full);
+          out.push({ file: path.relative(WORKSPACE_DIR, full).replace(/\\/g, '/'), size: stat.size });
+        }
+      }
+      return out;
+    };
+    const files = await listSrc(SRC_DIR);
+    res.json({ success: true, files });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// Apply a self-modification: backup old, write new, return diff metadata
+app.post('/api/self/modify', async (req, res) => {
+  try {
+    const { file, newContent, reason, generation } = req.body;
+    if (!file || !newContent) {
+      return res.status(400).json({ success: false, error: 'file and newContent are required' });
+    }
+
+    const abs = safeSrcPath(file);
+
+    // Read existing content
+    let oldContent = '';
+    try {
+      oldContent = await fs.promises.readFile(abs, 'utf-8');
+    } catch (_) { /* new file */ }
+
+    // Write backup
+    await fs.promises.mkdir(BACKUPS_DIR, { recursive: true });
+    const backupName = `${file.replace(/\//g, '__')}.gen${generation || 0}.bak`;
+    await fs.promises.writeFile(path.join(BACKUPS_DIR, backupName), oldContent, 'utf-8');
+
+    // Apply new content
+    await fs.promises.writeFile(abs, newContent, 'utf-8');
+
+    // Compute diff stats
+    const oldLines = oldContent.split('\n');
+    const newLines = newContent.split('\n');
+    const added = newLines.filter(l => !oldLines.includes(l)).length;
+    const removed = oldLines.filter(l => !newLines.includes(l)).length;
+
+    res.json({
+      success: true,
+      backup: backupName,
+      stats: { added, removed, oldLines: oldLines.length, newLines: newLines.length }
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// Restore from backup
+app.post('/api/self/restore', async (req, res) => {
+  try {
+    const { backupName, file } = req.body;
+    const backupPath = path.join(BACKUPS_DIR, backupName);
+    const targetPath = safeSrcPath(file);
+    const content = await fs.promises.readFile(backupPath, 'utf-8');
+    await fs.promises.writeFile(targetPath, content, 'utf-8');
+    res.json({ success: true, message: `Restored ${file} from backup` });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// Get evolution log
+app.get('/api/self/evolution', async (req, res) => {
+  try {
+    if (!fs.existsSync(EVOLUTION_FILE)) {
+      return res.json({ success: true, log: [] });
+    }
+    const data = await fs.promises.readFile(EVOLUTION_FILE, 'utf-8');
+    res.json({ success: true, log: JSON.parse(data) });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// Save evolution log entry
+app.post('/api/self/evolution', async (req, res) => {
+  try {
+    const { entry } = req.body;
+    let log = [];
+    if (fs.existsSync(EVOLUTION_FILE)) {
+      const data = await fs.promises.readFile(EVOLUTION_FILE, 'utf-8');
+      log = JSON.parse(data);
+    }
+    log.push(entry);
+    await fs.promises.writeFile(EVOLUTION_FILE, JSON.stringify(log, null, 2), 'utf-8');
+    res.json({ success: true, generation: log.length });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Express server running on http://localhost:${PORT}`);
 });

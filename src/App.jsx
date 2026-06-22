@@ -3,6 +3,7 @@ import Sidebar from './components/Sidebar';
 import DashboardPage from './components/DashboardPage';
 import ToyNNPage from './components/ToyNN/ToyNNPage';
 import AgentPage from './components/Agent/AgentPage';
+import SelfEvolutionPage from './components/SelfEvolution/SelfEvolutionPage';
 
 function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -82,7 +83,11 @@ function App() {
               localStorage.setItem('5s_sandbox_runs', current + 1);
               fetchStats();
             }}
+            onNavigate={setActiveTab}
           />
+        )}
+        {activeTab === 'evolution' && (
+          <SelfEvolutionPage apiKey={apiKey} />
         )}
       </main>
     </div>

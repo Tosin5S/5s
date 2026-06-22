@@ -1,7 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 function Sidebar({ activeTab, setActiveTab, apiKey, setApiKey }) {
   const [showKey, setShowKey] = useState(false);
+  const [generation, setGeneration] = useState(() => parseInt(localStorage.getItem('5s_generation') || '0'));
+
+  // Poll generation from localStorage (updated by SelfEvolutionPage)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const gen = parseInt(localStorage.getItem('5s_generation') || '0');
+      setGeneration(gen);
+    }, 2000);
+    return () => clearInterval(interval);
+  }, []);
 
   const menuItems = [
     {
@@ -42,6 +52,21 @@ function Sidebar({ activeTab, setActiveTab, apiKey, setApiKey }) {
           <path d="M8 12h8" />
           <path d="M12 8v8" />
           <circle cx="12" cy="12" r="3" fill="currentColor" opacity="0.2" />
+        </svg>
+      )
+    },
+    {
+      id: 'evolution',
+      name: 'Self-Evolution',
+      badge: generation > 0 ? `Gen ${generation}` : null,
+      icon: (
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M2 12C2 6.48 6.48 2 12 2" />
+          <path d="M22 12c0 5.52-4.48 10-10 10" />
+          <path d="M7 7c0 5 3 8 5 10" />
+          <path d="M17 17c0-5-3-8-5-10" />
+          <path d="M7 7c2-2 6-2 8 0" />
+          <path d="M17 17c-2 2-6 2-8 0" />
         </svg>
       )
     }
@@ -120,7 +145,16 @@ function Sidebar({ activeTab, setActiveTab, apiKey, setApiKey }) {
                 <span style={{ color: isActive ? 'var(--color-primary)' : 'var(--text-dark)' }}>
                   {item.icon}
                 </span>
-                {item.name}
+                <span style={{ flex: 1 }}>{item.name}</span>
+                {item.badge && (
+                  <span style={{
+                    fontSize: '0.6rem', fontWeight: '700', padding: '1px 6px', borderRadius: '8px',
+                    background: 'rgba(161,85,255,0.15)', border: '1px solid rgba(161,85,255,0.3)',
+                    color: 'var(--color-secondary)'
+                  }}>
+                    {item.badge}
+                  </span>
+                )}
               </button>
             );
           })}

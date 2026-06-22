@@ -407,7 +407,7 @@ function simulateConversationalReply(message, files, memories) {
 const delay = (ms) => new Promise(r => setTimeout(r, ms));
 
 // ─── Main AgentPage ───────────────────────────────────────────────────────────
-function AgentPage({ apiKey, onSandboxRun }) {
+function AgentPage({ apiKey, onSandboxRun, onNavigate }) {
   const [messages, setMessages] = useState([
     {
       id: 1,
@@ -443,6 +443,22 @@ function AgentPage({ apiKey, onSandboxRun }) {
   const handleSend = async () => {
     const text = input.trim();
     if (!text || isThinking) return;
+
+    // ── Self-improvement shortcut ──────────────────────────────────────────
+    if (/improve yourself|self.improv|upgrade yourself|evolve yourself|make yourself better|self.modif/i.test(text)) {
+      const userMsg = { id: Date.now(), role: 'user', content: text, timestamp: new Date().toISOString(), tools: [] };
+      setMessages(prev => [...prev, userMsg]);
+      setInput('');
+      await new Promise(r => setTimeout(r, 600));
+      const replyMsg = {
+        id: Date.now() + 1, role: 'assistant', tools: ['self_modify'],
+        timestamp: new Date().toISOString(),
+        content: `🧬 **Self-Improvement Mode**\n\nOpening the **Self-Evolution Engine** — where I can read my own source code, detect improvement opportunities, apply targeted code patches, and hot-reload the changes into this running application.\n\nNavigating there now...`
+      };
+      setMessages(prev => [...prev, replyMsg]);
+      setTimeout(() => onNavigate?.('evolution'), 1800);
+      return;
+    }
 
     const userMsg = { id: Date.now(), role: 'user', content: text, timestamp: new Date().toISOString(), tools: [] };
     const history = [...messages];
